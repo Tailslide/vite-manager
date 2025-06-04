@@ -161,6 +161,50 @@ To modify or extend the server:
 2. Run `npm run build` to compile
 3. Restart any MCP clients using the server
 
+### Testing
+
+The project includes comprehensive tests to ensure reliability:
+
+```bash
+# Run all tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run tests in watch mode
+npm run test:watch
+```
+
+#### Test Coverage
+
+The test suite covers:
+- **Utility Functions**: Instance ID generation, log file path creation
+- **Command Building**: VITE command construction with various options
+- **Port Detection**: Parsing VITE output to extract port numbers
+- **Log File Operations**: Creating, reading, and managing log files
+- **Tool Validation**: Parameter validation and tool name verification
+- **Error Scenarios**: Graceful handling of missing files and directories
+
+#### Running Tests
+
+Tests are written using Jest and cover the core functionality of the VITE manager:
+
+- Instance ID generation and consistency
+- Command line argument building
+- Port detection from VITE output
+- File system operations
+- Error handling scenarios
+
+### Git Repository
+
+This project is version controlled with Git. The repository includes:
+
+- Comprehensive `.gitignore` for Node.js/TypeScript projects
+- Automated testing with Jest
+- TypeScript compilation and build process
+- MCP server implementation
+
 ## License
 
 This MCP server is part of the BeatBlendr project.
