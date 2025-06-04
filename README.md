@@ -153,6 +153,25 @@ The server includes comprehensive error handling for:
 - All operations are local to the file system
 - Process management is limited to VITE servers only
 
+## Process Management & Cleanup
+
+The VITE Manager includes robust process cleanup to prevent orphaned processes:
+
+### Automatic Cleanup
+- **Signal Handlers**: Responds to SIGINT, SIGTERM, and other exit signals
+- **Process Tracking**: Tracks all spawned VITE processes with PIDs
+- **Graceful Shutdown**: Attempts graceful termination before force-killing
+- **Platform-Specific**: Uses `taskkill` on Windows for proper process tree termination
+
+### Cleanup Triggers
+- Server shutdown (Ctrl+C, SIGTERM)
+- Uncaught exceptions
+- Unhandled promise rejections
+- Manual process termination via `stop_vite` tool
+
+### Windows-Specific Handling
+On Windows, the server uses `taskkill /t /f` to ensure entire process trees are terminated, preventing orphaned node.exe processes that can occur with standard process.kill().
+
 ## Development
 
 To modify or extend the server:

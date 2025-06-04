@@ -276,13 +276,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (port) args.push('--port', String(port));
       if (host) args.push('--host', host);
       
-      // Start VITE process
+      // Start VITE process with better cleanup handling
       const viteProcess = spawn('npm', args, {
         cwd: resolvedPath,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: true,
-        detached: false
+        detached: false,
+        // On Windows, ensure child processes are killed when parent dies
+        windowsHide: true
       });
+      
+      // Store the process PID for better tracking
+      if (viteProcess.pid) {
+        console.error(`Started VITE process with PID: ${viteProcess.pid} for project: ${resolvedPath}`);
+      }
       
       // Create log file stream
       const logStream = fs.createWriteStream(logFile, { flags: 'w' });
@@ -354,15 +361,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`No running VITE server found for: ${projectPath}`);
       }
       
-      // Kill the process
-      instance.process.kill('SIGTERM');
+      // Kill the process using platform-appropriate method
+      const pid = instance.process.pid;
+      console.error(`Stopping VITE process for instance: ${instanceId} (PID: ${pid})`);
       
-      // Wait a bit, then force kill if needed
-      setTimeout(() => {
-        if (!instance.process.killed) {
-          instance.process.kill('SIGKILL');
+      if (process.platform === 'win32' && pid) {
+        try {
+          // Use taskkill to terminate the process tree on Windows
+          const killProcess = spawn('taskkill', ['/pid', pid.toString(), '/t', '/f'], {
+            stdio: 'ignore'
+          });
+          
+          killProcess.on('exit', (code: number | null) => {
+            console.error(`taskkill for PID ${pid} exited with code: ${code}`);
+          });
+          
+        } catch (winError) {
+          console.error(`Error using taskkill for PID ${pid}:`, winError);
+          // Fallback to regular kill
+          instance.process.kill('SIGTERM');
         }
-      }, 5000);
+      } else {
+        // Kill the process on non-Windows platforms
+        instance.process.kill('SIGTERM');
+        
+        // Wait a bit, then force kill if needed
+        setTimeout(() => {
+          if (!instance.process.killed) {
+            instance.process.kill('SIGKILL');
+          }
+        }, 5000);
+      }
       
       return {
         content: [{
@@ -478,14 +507,98 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 /**
+ * Cleanup function to terminate all running VITE processes
+ */
+function cleanup() {
+  console.error("Shutting down MCP server, terminating all VITE processes...");
+  
+  for (const [instanceId, instance] of viteInstances) {
+    try {
+      const pid = instance.process.pid;
+      console.error(`Terminating VITE process for instance: ${instanceId} (PID: ${pid})`);
+      
+      // On Windows, we need to kill the entire process tree
+      if (process.platform === 'win32' && pid) {
+        try {
+          // Use taskkill to terminate the process tree on Windows
+          const { spawn } = require('child_process');
+          const killProcess = spawn('taskkill', ['/pid', pid.toString(), '/t', '/f'], {
+            stdio: 'ignore'
+          });
+          
+          killProcess.on('exit', (code: number | null) => {
+            console.error(`taskkill for PID ${pid} exited with code: ${code}`);
+          });
+          
+        } catch (winError) {
+          console.error(`Error using taskkill for PID ${pid}:`, winError);
+          // Fallback to regular kill
+          instance.process.kill('SIGTERM');
+        }
+      } else {
+        // Try graceful shutdown first on non-Windows platforms
+        instance.process.kill('SIGTERM');
+        
+        // Force kill after a short delay if process is still running
+        setTimeout(() => {
+          if (!instance.process.killed) {
+            console.error(`Force killing VITE process for instance: ${instanceId}`);
+            instance.process.kill('SIGKILL');
+          }
+        }, 2000);
+      }
+      
+    } catch (error) {
+      console.error(`Error terminating VITE process ${instanceId}:`, error);
+    }
+  }
+  
+  // Clear the instances map
+  viteInstances.clear();
+}
+
+/**
  * Start the server using stdio transport
  */
 async function main() {
   const transport = new StdioServerTransport();
+  
+  // Setup cleanup handlers for various exit scenarios
+  process.on('SIGINT', () => {
+    console.error('Received SIGINT, cleaning up...');
+    cleanup();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', () => {
+    console.error('Received SIGTERM, cleaning up...');
+    cleanup();
+    process.exit(0);
+  });
+  
+  process.on('exit', () => {
+    cleanup();
+  });
+  
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+    cleanup();
+    process.exit(1);
+  });
+  
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled rejection at:', promise, 'reason:', reason);
+    cleanup();
+    process.exit(1);
+  });
+  
   await server.connect(transport);
 }
 
 main().catch((error) => {
   console.error("Server error:", error);
+  cleanup();
   process.exit(1);
 });
